@@ -44,17 +44,29 @@ interface Message {
   created_at: string;
 }
 
+interface AIConnection {
+  id: string;
+  user_id: string;
+  provider: string;
+  model_name: string;
+  connection_type: string;
+  status: string;
+  created_at: string;
+}
+
 interface RealtimeContextType {
   profile: Profile | null;
   conversations: Conversation[];
   currentMessages: Message[];
   currentConversationId: string | null;
   userSettings: UserSettings | null;
+  connections: AIConnection[];
   setCurrentConversationId: (id: string | null) => void;
   refreshProfile: () => Promise<void>;
   refreshConversations: () => Promise<void>;
   refreshMessages: (conversationId: string) => Promise<void>;
   refreshSettings: () => Promise<void>;
+  refreshConnections: () => Promise<void>;
   createConversation: (title: string, modelId: string) => Promise<string | null>;
   sendMessage: (conversationId: string, role: string, content: string) => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<void>;
@@ -71,6 +83,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [currentMessages, setCurrentMessages] = useState<Message[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
+  const [connections, setConnections] = useState<AIConnection[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [channels, setChannels] = useState<RealtimeChannel[]>([]);
 
@@ -131,11 +144,35 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       )
       .subscribe();
 
-    setChannels([profileChannel, conversationsChannel]);
+    const connectionsChannel = supabase
+      .channel('connections-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'ai_connections',
+          filter: `user_id=eq.${userId}`
+        },
+        (payload) => {
+          console.log('Connection changed:', payload);
+          if (payload.eventType === 'INSERT') {
+            setConnections(prev => [payload.new as AIConnection, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setConnections(prev => prev.map(c => c.id === payload.new.id ? payload.new as AIConnection : c));
+          } else if (payload.eventType === 'DELETE') {
+            setConnections(prev => prev.filter(c => c.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
+    setChannels([profileChannel, conversationsChannel, connectionsChannel]);
 
     return () => {
       supabase.removeChannel(profileChannel);
       supabase.removeChannel(conversationsChannel);
+      supabase.removeChannel(connectionsChannel);
     };
   }, [userId]);
 
@@ -192,6 +229,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       
       // Load user settings
       await refreshSettings();
+      
+      // Load connections
+      await refreshConnections();
     } catch (error) {
       console.error('Error loading initial data:', error);
     }
@@ -311,6 +351,23 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function refreshConnections() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('ai_connections')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (data) setConnections(data);
+    } catch (error) {
+      console.error('Error refreshing connections:', error);
+    }
+  }
+
   async function refreshSettings() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -403,6 +460,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     currentMessages,
     currentConversationId,
     userSettings,
+    connections,
     setCurrentConversationId: (id) => {
       setCurrentConversationId(id);
       if (id) refreshMessages(id);
@@ -412,6 +470,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     refreshConversations,
     refreshMessages,
     refreshSettings,
+    refreshConnections,
     createConversation,
     sendMessage,
     updateProfile,

@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ArrowLeft,
   ChevronLeft,
+  CheckCircle,
 } from "lucide-react"
 import ProfileSettings from "../components/profile-settings"
 import AccountSettings from "../components/account-settings"
@@ -57,32 +58,33 @@ interface Model {
   badges?: string[]
 }
 
-const models: Model[] = [
+// Base model definitions (status will be computed dynamically)
+const baseModels = [
   {
-    id: "gemini",
+    id: "gemini-pro",
     name: "Gemini Pro",
     icon: "🔷",
     description: "Google's most capable AI",
     provider: "google",
-    status: "auto",
+    defaultStatus: "auto" as const,
     badges: ["Fast", "Accurate"],
   },
   {
-    id: "gpt4",
+    id: "gpt-4",
     name: "GPT-4",
     icon: "🤖",
     description: "OpenAI's most advanced model",
     provider: "openai",
-    status: "connect",
+    defaultStatus: "connect" as const,
     badges: ["Powerful", "Creative"],
   },
   {
-    id: "claude",
+    id: "claude-3-opus",
     name: "Claude 3 Opus",
     icon: "🧠",
     description: "Most powerful Claude model",
     provider: "anthropic",
-    status: "manual",
+    defaultStatus: "manual" as const,
     badges: ["Smart", "Careful"],
   },
   {
@@ -91,7 +93,7 @@ const models: Model[] = [
     icon: "🔍",
     description: "Real-time search AI",
     provider: "perplexity",
-    status: "connect",
+    defaultStatus: "connect" as const,
     badges: ["Updated", "Research"],
   },
   {
@@ -100,7 +102,7 @@ const models: Model[] = [
     icon: "🌪️",
     description: "Fast and efficient AI",
     provider: "mistral",
-    status: "auto",
+    defaultStatus: "auto" as const,
     badges: ["Quick", "Efficient"],
   },
 ]
@@ -122,6 +124,8 @@ export default function ArcynEyeDashboard() {
     setCurrentConversationId,
     createConversation,
     sendMessage: realtimeSendMessage,
+    connections,
+    refreshConnections,
   } = useRealtime();
 
   const [showSettings, setShowSettings] = useState(false)
@@ -136,6 +140,18 @@ export default function ArcynEyeDashboard() {
     "dashboard" | "profile-settings" | "account-settings" | "preferences" | "app-settings" | "models"
   >("dashboard")
   const [profilePicture, setProfilePicture] = useState<string>("")
+
+  // Helper function to check if a model is connected
+  function getModelStatus(modelId: string, defaultStatus: "auto" | "connect" | "manual"): "auto" | "connect" | "manual" {
+    const isConnected = connections.some(c => c.model_name === modelId && c.status === 'active')
+    return isConnected ? "auto" : defaultStatus
+  }
+
+  // Compute models with dynamic status based on connections
+  const models: Model[] = baseModels.map(model => ({
+    ...model,
+    status: getModelStatus(model.id, model.defaultStatus)
+  }))
 
   // Format conversations with timestamps
   const conversations = realtimeConversations.map(conv => ({
@@ -328,7 +344,7 @@ export default function ArcynEyeDashboard() {
                     initial={{ opacity: 0, scale: 0.9, x: -10 }}
                     animate={{ opacity: 1, scale: 1, x: 0 }}
                     exit={{ opacity: 0, scale: 0.9, x: -10 }}
-                    className="absolute bottom-0 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-60"
+                    className="absolute bottom-0 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-[70]"
                     style={{ backdropFilter: "blur(12px)" }}
                   >
                     {/* Profile Header */}
@@ -753,8 +769,7 @@ export default function ArcynEyeDashboard() {
           onClose={() => setConnectionModal({isOpen: false, model: null})}
           model={connectionModal.model}
           onSuccess={() => {
-            // Refresh connections - will be implemented with RealtimeContext
-            console.log('Connection saved successfully')
+            refreshConnections()
           }}
         />
       )}
@@ -767,9 +782,10 @@ interface ModelCardProps {
   buttonText?: string
   onSelect?: () => void
   onConnect?: () => void
+  isConnected?: boolean
 }
 
-function ModelCard({ model, buttonText, onSelect, onConnect }: ModelCardProps) {
+function ModelCard({ model, buttonText, onSelect, onConnect, isConnected }: ModelCardProps) {
   const getBadgeColor = (status: string) => {
     switch (status) {
       case "auto":
@@ -794,8 +810,9 @@ function ModelCard({ model, buttonText, onSelect, onConnect }: ModelCardProps) {
       <p className="text-xs text-gray-400 mb-3">{model.description}</p>
 
       {model.status === "auto" && (
-        <div className={`px-3 py-1 rounded-full text-xs font-medium border ${getBadgeColor(model.status)} mb-4`}>
-          Auto
+        <div className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium border bg-green-500/20 text-green-400 border-green-500/30 mb-4">
+          <CheckCircle className="w-3 h-3" />
+          Connected
         </div>
       )}
 
@@ -819,7 +836,21 @@ function ModelCard({ model, buttonText, onSelect, onConnect }: ModelCardProps) {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.95 }}
         >
-          {buttonText || "Select"}
+          {buttonText || "Connect"}
+        </motion.button>
+      )}
+      
+      {model.status === "auto" && onSelect && (
+        <motion.button
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect?.()
+          }}
+          className="w-full mt-2 px-3 py-2 rounded-lg bg-white/10 text-white font-medium text-sm hover:bg-white/20 transition-all border border-white/20"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          Select
         </motion.button>
       )}
     </motion.div>

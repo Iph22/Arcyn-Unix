@@ -6,6 +6,7 @@ import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
+import { useRealtime } from "@/lib/contexts/RealtimeContext"
 import {
   Settings,
   Plus,
@@ -31,6 +32,18 @@ interface Conversation {
   id: string
   title: string
   timestamp: string
+  model_id?: string
+  created_at?: string
+  updated_at?: string
+}
+
+interface Profile {
+  id: string
+  username: string | null
+  full_name: string | null
+  avatar_url: string | null
+  bio: string | null
+  phone: string | null
 }
 
 interface Model {
@@ -94,15 +107,19 @@ const navItems = [
 export default function ArcynEyeDashboard() {
   const router = useRouter();
   const supabase = createClient();
+  const {
+    profile,
+    conversations: realtimeConversations,
+    currentMessages,
+    currentConversationId,
+    setCurrentConversationId,
+    createConversation,
+    sendMessage: realtimeSendMessage,
+  } = useRealtime();
+
   const [showSettings, setShowSettings] = useState(false)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string>("gemini")
-  const [conversations, setConversations] = useState<Conversation[]>([
-    { id: "1", title: "Design System Discussion", timestamp: "2 hours ago" },
-    { id: "2", title: "API Integration Help", timestamp: "1 day ago" },
-    { id: "3", title: "Code Review Notes", timestamp: "2 days ago" },
-  ])
-  const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([])
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
@@ -111,24 +128,66 @@ export default function ArcynEyeDashboard() {
     "dashboard" | "profile-settings" | "account-settings" | "preferences" | "app-settings" | "models"
   >("dashboard")
   const [profilePicture, setProfilePicture] = useState<string>("")
-  const [theme, setTheme] = useState<"dark" | "light">("dark")
-  const [language, setLanguage] = useState<"en" | "es" | "fr">("en")
+
+  // Format conversations with timestamps
+  const conversations = realtimeConversations.map(conv => ({
+    ...conv,
+    timestamp: formatTimestamp(conv.updated_at)
+  }));
+
+  // Convert currentMessages to display format
+  const messages = currentMessages.map(msg => ({
+    role: msg.role,
+    content: msg.content
+  }));
+
+  function formatTimestamp(timestamp: string): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    if (diffDays === 1) return '1 day ago';
+    return `${diffDays} days ago`;
+  }
 
   const currentModel = models.find((m) => m.id === selectedModel)
 
-  const handleSendMessage = () => {
-    if (input.trim()) {
-      setMessages([...messages, { role: "user", content: input }])
-      setInput("")
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `This is a response from ${currentModel?.name}. Your message: "${input}"`,
-          },
-        ])
-      }, 500)
+  const handleSendMessage = async () => {
+    if (!input.trim()) return;
+
+    const userMessage = input;
+    setInput("");
+
+    try {
+      // Create new conversation if needed
+      let conversationId = currentConversationId;
+      if (!conversationId) {
+        conversationId = await createConversation(
+          userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : ''),
+          selectedModel
+        );
+        if (conversationId) {
+          setCurrentConversationId(conversationId);
+        }
+      }
+
+      // Send user message (real-time will update UI)
+      if (conversationId) {
+        await realtimeSendMessage(conversationId, 'user', userMessage);
+
+        // Simulate AI response (replace with actual API call)
+        setTimeout(async () => {
+          const assistantMessage = `This is a response from ${currentModel?.name}. Your message: "${userMessage}"`;
+          await realtimeSendMessage(conversationId!, 'assistant', assistantMessage);
+        }, 500);
+      }
+    } catch (error) {
+      console.error('Error sending message:', error);
     }
   }
 
@@ -176,9 +235,7 @@ export default function ArcynEyeDashboard() {
           )}
           {currentPage === "account-settings" && <AccountSettings />}
           {currentPage === "preferences" && <Preferences />}
-          {currentPage === "app-settings" && (
-            <AppSettings theme={theme} setTheme={setTheme} language={language} setLanguage={setLanguage} />
-          )}
+          {currentPage === "app-settings" && <AppSettings />}
           {currentPage === "models" && <ModelsPage />}
         </div>
       </div>
@@ -280,8 +337,8 @@ export default function ArcynEyeDashboard() {
                         )}
                       </div>
                       <div>
-                        <p className="font-semibold text-white">Arcyn Unix</p>
-                        <p className="text-xs text-gray-400">@arcynunix</p>
+                        <p className="font-semibold text-white">{profile?.full_name || 'User'}</p>
+                        <p className="text-xs text-gray-400">@{profile?.username || 'user'}</p>
                       </div>
                     </div>
 
@@ -432,8 +489,8 @@ export default function ArcynEyeDashboard() {
                 {/* New Chat Button */}
                 <motion.button
                   onClick={() => {
-                    setMessages([])
-                    setInput("")
+                    setInput("");
+                    setCurrentConversationId(null);
                   }}
                   className="w-full bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-semibold py-3 rounded-full flex items-center justify-center gap-2 hover:scale-105 transition-all mb-6 shadow-lg"
                   style={{ boxShadow: "0 0 20px rgba(6,182,212,0.4)" }}
@@ -446,18 +503,25 @@ export default function ArcynEyeDashboard() {
 
                 {/* Conversations */}
                 <div className="flex-1 overflow-y-auto space-y-2 mb-6">
-                  {conversations.map((conv, idx) => (
-                    <motion.div
-                      key={conv.id}
-                      className="p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-all"
-                      initial={{ x: -10, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: 0.3 + idx * 0.05 }}
-                    >
-                      <p className="text-sm font-medium text-white truncate">{conv.title}</p>
-                      <p className="text-xs text-gray-500 mt-1">{conv.timestamp}</p>
-                    </motion.div>
-                  ))}
+                  {conversations.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-4">No conversations yet</p>
+                  ) : (
+                    conversations.map((conv, idx) => (
+                      <motion.div
+                        key={conv.id}
+                        onClick={() => setCurrentConversationId(conv.id)}
+                        className={`p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-all ${
+                          currentConversationId === conv.id ? 'bg-white/10' : ''
+                        }`}
+                        initial={{ x: -10, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        transition={{ delay: 0.3 + idx * 0.05 }}
+                      >
+                        <p className="text-sm font-medium text-white truncate">{conv.title}</p>
+                        <p className="text-xs text-gray-500 mt-1">{conv.timestamp}</p>
+                      </motion.div>
+                    ))
+                  )}
                 </div>
 
                 {/* Settings Icon */}

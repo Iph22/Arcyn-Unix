@@ -4,7 +4,9 @@ import type React from "react"
 
 import { motion } from "framer-motion"
 import { Upload, Save, Mail, Phone } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { createClient } from "@/lib/supabase/client"
+import { useRealtime } from "@/lib/contexts/RealtimeContext"
 
 interface ProfileSettingsProps {
   onProfilePictureUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -12,11 +14,51 @@ interface ProfileSettingsProps {
 }
 
 export default function ProfileSettings({ onProfilePictureUpload, profilePicture }: ProfileSettingsProps) {
-  const [fullName, setFullName] = useState("John Doe")
-  const [username, setUsername] = useState("johndoe")
-  const [email, setEmail] = useState("john@example.com")
-  const [phone, setPhone] = useState("+1 (555) 123-4567")
-  const [bio, setBio] = useState("AI enthusiast and software developer")
+  const supabase = createClient();
+  const { profile, updateProfile: realtimeUpdateProfile } = useRealtime();
+  const [fullName, setFullName] = useState("")
+  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
+  const [phone, setPhone] = useState("")
+  const [bio, setBio] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  // Load profile data from context
+  useEffect(() => {
+    if (profile) {
+      setFullName(profile.full_name || "");
+      setUsername(profile.username || "");
+      setPhone(profile.phone || "");
+      setBio(profile.bio || "");
+    }
+  }, [profile]);
+
+  // Load email from auth
+  useEffect(() => {
+    async function loadEmail() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setEmail(user.email || "");
+    }
+    loadEmail();
+  }, []);
+
+  async function saveProfile() {
+    setSaving(true);
+    try {
+      await realtimeUpdateProfile({
+        full_name: fullName,
+        username: username,
+        phone: phone,
+        bio: bio,
+      });
+      alert('Profile updated successfully!');
+    } catch (error: any) {
+      console.error('Error saving profile:', error);
+      alert('Error saving profile: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <motion.div
@@ -127,13 +169,15 @@ export default function ProfileSettings({ onProfilePictureUpload, profilePicture
 
       {/* Save Button */}
       <motion.button
-        className="w-full px-6 py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-semibold flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-lg"
+        onClick={saveProfile}
+        disabled={saving}
+        className="w-full px-6 py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-cyan-400 text-black font-semibold flex items-center justify-center gap-2 hover:scale-105 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ boxShadow: "0 0 20px rgba(6,182,212,0.4)" }}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.95 }}
+        whileHover={{ scale: saving ? 1 : 1.02 }}
+        whileTap={{ scale: saving ? 1 : 0.95 }}
       >
         <Save className="w-5 h-5" />
-        Save Changes
+        {saving ? 'Saving...' : 'Save Changes'}
       </motion.button>
     </motion.div>
   )

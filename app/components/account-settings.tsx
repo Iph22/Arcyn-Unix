@@ -2,13 +2,64 @@
 
 import { motion } from "framer-motion"
 import { Lock, Shield, Smartphone, Clock } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useRealtime } from "@/lib/contexts/RealtimeContext"
 
 export default function AccountSettings() {
+  const { userSettings, updateSettings, changePassword } = useRealtime();
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+
+  // Load 2FA setting from context
+  useEffect(() => {
+    if (userSettings) {
+      setTwoFactorEnabled(userSettings.two_factor_enabled);
+    }
+  }, [userSettings]);
+
+  async function handlePasswordChange() {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      alert('Please fill in all password fields');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      alert('New passwords do not match');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      alert('New password must be at least 6 characters');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      alert('Password updated successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      alert(error.message || 'Error updating password');
+    } finally {
+      setIsUpdating(false);
+    }
+  }
+
+  async function toggleTwoFactor() {
+    const newValue = !twoFactorEnabled;
+    setTwoFactorEnabled(newValue);
+    try {
+      await updateSettings({ two_factor_enabled: newValue });
+    } catch (error) {
+      console.error('Error updating 2FA:', error);
+      setTwoFactorEnabled(!newValue); // Revert on error
+    }
+  }
 
   return (
     <motion.div
@@ -62,11 +113,13 @@ export default function AccountSettings() {
         </div>
 
         <motion.button
-          className="w-full px-6 py-2 rounded-lg bg-cyan-500 text-black font-semibold hover:bg-cyan-400 transition-all"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.95 }}
+          onClick={handlePasswordChange}
+          disabled={isUpdating}
+          className="w-full px-6 py-2 rounded-lg bg-cyan-500 text-black font-semibold hover:bg-cyan-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          whileHover={{ scale: isUpdating ? 1 : 1.02 }}
+          whileTap={{ scale: isUpdating ? 1 : 0.95 }}
         >
-          Update Password
+          {isUpdating ? 'Updating...' : 'Update Password'}
         </motion.button>
       </div>
 
@@ -78,7 +131,7 @@ export default function AccountSettings() {
             <h3 className="text-xl font-semibold">Two-Factor Authentication</h3>
           </div>
           <motion.button
-            onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
+            onClick={toggleTwoFactor}
             className={`px-4 py-2 rounded-lg font-semibold transition-all ${
               twoFactorEnabled
                 ? "bg-green-500/20 text-green-400 border border-green-500/50"

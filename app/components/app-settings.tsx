@@ -2,16 +2,39 @@
 
 import { motion } from "framer-motion"
 import { Moon, Sun, Globe } from "lucide-react"
-import type { Dispatch, SetStateAction } from "react"
+import { useState, useEffect } from "react"
+import { useRealtime } from "@/lib/contexts/RealtimeContext"
 
-interface AppSettingsProps {
-  theme: "dark" | "light"
-  setTheme: Dispatch<SetStateAction<"dark" | "light">>
-  language: "en" | "es" | "fr"
-  setLanguage: Dispatch<SetStateAction<"en" | "es" | "fr">>
-}
+export default function AppSettings() {
+  const { userSettings, updateSettings } = useRealtime();
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [language, setLanguage] = useState<"en" | "es" | "fr">("en");
 
-export default function AppSettings({ theme, setTheme, language, setLanguage }: AppSettingsProps) {
+  // Load settings from context
+  useEffect(() => {
+    if (userSettings) {
+      setTheme(userSettings.theme);
+      setLanguage(userSettings.language);
+    }
+  }, [userSettings]);
+
+  async function handleThemeChange(newTheme: "dark" | "light") {
+    setTheme(newTheme);
+    try {
+      await updateSettings({ theme: newTheme });
+    } catch (error) {
+      console.error('Error updating theme:', error);
+    }
+  }
+
+  async function handleLanguageChange(newLanguage: "en" | "es" | "fr") {
+    setLanguage(newLanguage);
+    try {
+      await updateSettings({ language: newLanguage });
+    } catch (error) {
+      console.error('Error updating language:', error);
+    }
+  }
   return (
     <motion.div
       className="p-8 max-w-2xl mx-auto"
@@ -37,7 +60,7 @@ export default function AppSettings({ theme, setTheme, language, setLanguage }: 
             return (
               <motion.button
                 key={themeOption.id}
-                onClick={() => setTheme(themeOption.id as "dark" | "light")}
+                onClick={() => handleThemeChange(themeOption.id as "dark" | "light")}
                 className={`p-4 rounded-lg flex items-center gap-3 transition-all border ${
                   theme === themeOption.id
                     ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-400"
@@ -70,7 +93,7 @@ export default function AppSettings({ theme, setTheme, language, setLanguage }: 
           ].map((lang) => (
             <motion.button
               key={lang.id}
-              onClick={() => setLanguage(lang.id as "en" | "es" | "fr")}
+              onClick={() => handleLanguageChange(lang.id as "en" | "es" | "fr")}
               className={`p-4 rounded-lg flex flex-col items-center gap-2 transition-all border ${
                 language === lang.id
                   ? "bg-cyan-500/20 border-cyan-500/50 text-cyan-400"

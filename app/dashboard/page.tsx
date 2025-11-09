@@ -27,6 +27,7 @@ import AccountSettings from "../components/account-settings"
 import Preferences from "../components/preferences"
 import AppSettings from "../components/app-settings"
 import ModelsPage from "../components/models-page"
+import ConnectionModal from "../components/connection-modal"
 
 interface Conversation {
   id: string
@@ -51,6 +52,7 @@ interface Model {
   name: string
   icon: string
   description: string
+  provider: string
   status: "auto" | "connect" | "manual"
   badges?: string[]
 }
@@ -61,6 +63,7 @@ const models: Model[] = [
     name: "Gemini Pro",
     icon: "🔷",
     description: "Google's most capable AI",
+    provider: "google",
     status: "auto",
     badges: ["Fast", "Accurate"],
   },
@@ -69,6 +72,7 @@ const models: Model[] = [
     name: "GPT-4",
     icon: "🤖",
     description: "OpenAI's most advanced model",
+    provider: "openai",
     status: "connect",
     badges: ["Powerful", "Creative"],
   },
@@ -77,6 +81,7 @@ const models: Model[] = [
     name: "Claude 3 Opus",
     icon: "🧠",
     description: "Most powerful Claude model",
+    provider: "anthropic",
     status: "manual",
     badges: ["Smart", "Careful"],
   },
@@ -85,6 +90,7 @@ const models: Model[] = [
     name: "Perplexity",
     icon: "🔍",
     description: "Real-time search AI",
+    provider: "perplexity",
     status: "connect",
     badges: ["Updated", "Research"],
   },
@@ -93,6 +99,7 @@ const models: Model[] = [
     name: "Mistral",
     icon: "🌪️",
     description: "Fast and efficient AI",
+    provider: "mistral",
     status: "auto",
     badges: ["Quick", "Efficient"],
   },
@@ -123,6 +130,7 @@ export default function ArcynEyeDashboard() {
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
+  const [connectionModal, setConnectionModal] = useState<{isOpen: boolean, model: Model | null}>({isOpen: false, model: null})
 
   const [currentPage, setCurrentPage] = useState<
     "dashboard" | "profile-settings" | "account-settings" | "preferences" | "app-settings" | "models"
@@ -320,7 +328,7 @@ export default function ArcynEyeDashboard() {
                     initial={{ opacity: 0, scale: 0.9, x: -10 }}
                     animate={{ opacity: 1, scale: 1, x: 0 }}
                     exit={{ opacity: 0, scale: 0.9, x: -10 }}
-                    className="absolute bottom-0 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-40"
+                    className="absolute bottom-0 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-60"
                     style={{ backdropFilter: "blur(12px)" }}
                   >
                     {/* Profile Header */}
@@ -639,7 +647,7 @@ export default function ArcynEyeDashboard() {
           <>
             {/* Backdrop */}
             <motion.div
-              className="fixed inset-0 bg-black/40 z-40"
+              className="fixed inset-0 bg-black/60 z-40"
               style={{ backdropFilter: "blur(12px)" }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -686,6 +694,7 @@ export default function ArcynEyeDashboard() {
                             setSelectedModel(model.id)
                             setShowSettings(false)
                           }}
+                          onConnect={() => setConnectionModal({isOpen: true, model})}
                         />
                       ))}
                     </div>
@@ -701,7 +710,12 @@ export default function ArcynEyeDashboard() {
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                       {quickConnectModels.map((model) => (
-                        <ModelCard key={model.id} model={model} buttonText="Connect" />
+                        <ModelCard 
+                          key={model.id} 
+                          model={model} 
+                          buttonText="Connect"
+                          onConnect={() => setConnectionModal({isOpen: true, model})}
+                        />
                       ))}
                     </div>
                   </div>
@@ -716,7 +730,12 @@ export default function ArcynEyeDashboard() {
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                       {manualModels.map((model) => (
-                        <ModelCard key={model.id} model={model} buttonText="Add API Key" />
+                        <ModelCard 
+                          key={model.id} 
+                          model={model} 
+                          buttonText="Add API Key"
+                          onConnect={() => setConnectionModal({isOpen: true, model})}
+                        />
                       ))}
                     </div>
                   </div>
@@ -726,6 +745,19 @@ export default function ArcynEyeDashboard() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Connection Modal */}
+      {connectionModal.model && (
+        <ConnectionModal 
+          isOpen={connectionModal.isOpen}
+          onClose={() => setConnectionModal({isOpen: false, model: null})}
+          model={connectionModal.model}
+          onSuccess={() => {
+            // Refresh connections - will be implemented with RealtimeContext
+            console.log('Connection saved successfully')
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -734,9 +766,10 @@ interface ModelCardProps {
   model: Model
   buttonText?: string
   onSelect?: () => void
+  onConnect?: () => void
 }
 
-function ModelCard({ model, buttonText, onSelect }: ModelCardProps) {
+function ModelCard({ model, buttonText, onSelect, onConnect }: ModelCardProps) {
   const getBadgeColor = (status: string) => {
     switch (status) {
       case "auto":
@@ -778,6 +811,10 @@ function ModelCard({ model, buttonText, onSelect }: ModelCardProps) {
 
       {model.status !== "auto" && (
         <motion.button
+          onClick={(e) => {
+            e.stopPropagation()
+            onConnect?.()
+          }}
           className="w-full mt-2 px-3 py-2 rounded-lg bg-cyan-500 text-black font-medium text-sm hover:bg-cyan-400 transition-all"
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.95 }}

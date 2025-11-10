@@ -17,6 +17,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "ARCYN UNIX - Unified AI Interface",
   description: "Minimal. Sharp. Intentional. Intelligence through clarity.",
+  icons: {
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -45,6 +50,7 @@ export default function RootLayout({
             }}
           />
         </RealtimeProvider>
+        <p>Powered by Arcyn</p>
       </body>
     </html>
   );

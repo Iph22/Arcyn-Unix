@@ -178,33 +178,70 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
   // Setup messages subscription for current conversation
   useEffect(() => {
-    if (!currentConversationId) return;
+    if (!currentConversationId) {
+      setCurrentMessages([])
+      return
+    }
 
-    const messagesChannel = supabase
-      .channel(`messages-${currentConversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${currentConversationId}`
-        },
-        (payload) => {
-          console.log('Message changed:', payload);
-          if (payload.eventType === 'INSERT') {
-            setCurrentMessages(prev => [...prev, payload.new as Message]);
-          } else if (payload.eventType === 'DELETE') {
-            setCurrentMessages(prev => prev.filter(msg => msg.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    let messagesChannel: RealtimeChannel | null = null
+
+    const setupSubscription = async () => {
+      try {
+        console.log('📡 Setting up messages subscription for:', currentConversationId)
+        
+        // Load initial messages first
+        await refreshMessages(currentConversationId)
+
+        // Setup real-time subscription
+        messagesChannel = supabase
+          .channel(`messages-${currentConversationId}`, {
+            config: {
+              broadcast: { self: true }
+            }
+          })
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: `conversation_id=eq.${currentConversationId}` 
+            },
+            (payload) => {
+              console.log('✅ Message received via realtime:', payload.new.id)
+              setCurrentMessages(prev => {
+                // Check if message already exists (avoid duplicates from optimistic update)
+                if (prev.some(m => m.id === payload.new.id)) {
+                  console.log('⚠️ Duplicate message, skipping')
+                  return prev
+                }
+                console.log('➕ Adding new message from realtime')
+                return [...prev, payload.new as Message]
+              })
+            }
+          )
+          .subscribe((status, err) => {
+            if (err) {
+              console.error('❌ Subscription error:', err)
+            } else {
+              console.log('📡 Subscription status:', status)
+            }
+          })
+
+      } catch (error) {
+        console.error('❌ Error setting up subscription:', error)
+      }
+    }
+
+    setupSubscription()
 
     return () => {
-      supabase.removeChannel(messagesChannel);
-    };
-  }, [currentConversationId]);
+      if (messagesChannel) {
+        console.log('🔌 Cleaning up messages subscription')
+        supabase.removeChannel(messagesChannel)
+      }
+    }
+  }, [currentConversationId])
 
   async function loadInitialData() {
     try {
@@ -310,24 +347,54 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
   async function sendMessage(conversationId: string, role: string, content: string) {
     try {
-      const { error } = await supabase
+      console.log('📤 Sending message:', { conversationId, role, content: content.substring(0, 50) })
+      
+      // Optimistic update - show immediately in UI
+      const tempId = `temp-${Date.now()}` 
+      const optimisticMessage: Message = {
+        id: tempId,
+        conversation_id: conversationId,
+        role,
+        content,
+        created_at: new Date().toISOString()
+      }
+      
+      setCurrentMessages(prev => [...prev, optimisticMessage])
+
+      // Insert to database
+      const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           role,
           content
-        });
+        })
+        .select()
+        .single()
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error inserting message:', error)
+        // Remove optimistic message on error
+        setCurrentMessages(prev => prev.filter(m => m.id !== tempId))
+        throw error
+      }
+
+      console.log('✅ Message saved to DB:', data.id)
+
+      // Replace temp message with real one from database
+      setCurrentMessages(prev => 
+        prev.map(m => m.id === tempId ? data : m)
+      )
 
       // Update conversation timestamp
       await supabase
         .from('conversations')
         .update({ updated_at: new Date().toISOString() })
-        .eq('id', conversationId);
+        .eq('id', conversationId)
+
     } catch (error) {
-      console.error('Error sending message:', error);
-      throw error;
+      console.error('❌ Error sending message:', error)
+      throw error
     }
   }
 

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
@@ -141,6 +141,14 @@ export default function ArcynEyeDashboard() {
   >("dashboard")
   const [profilePicture, setProfilePicture] = useState<string>("")
 
+  // Close settings modal when profile menu opens
+  useEffect(() => {
+    if (showProfileMenu) {
+      // Close settings modal when profile opens
+      setShowSettings(false)
+    }
+  }, [showProfileMenu])
+
   // Helper function to check if a model is connected
   function getModelStatus(modelId: string, defaultStatus: "auto" | "connect" | "manual"): "auto" | "connect" | "manual" {
     const isConnected = connections.some(c => c.model_name === modelId && c.status === 'active')
@@ -182,36 +190,47 @@ export default function ArcynEyeDashboard() {
   const currentModel = models.find((m) => m.id === selectedModel)
 
   const handleSendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim()) return
 
-    const userMessage = input;
-    setInput("");
+    const userMessage = input
+    setInput("") // Clear input immediately for better UX
 
     try {
-      // Create new conversation if needed
-      let conversationId = currentConversationId;
+      let conversationId = currentConversationId
+
+      // Create conversation if needed
       if (!conversationId) {
+        console.log('📝 Creating new conversation...')
         conversationId = await createConversation(
           userMessage.slice(0, 50) + (userMessage.length > 50 ? '...' : ''),
           selectedModel
-        );
+        )
         if (conversationId) {
-          setCurrentConversationId(conversationId);
+          setCurrentConversationId(conversationId)
+        } else {
+          throw new Error('Failed to create conversation')
         }
       }
 
-      // Send user message (real-time will update UI)
       if (conversationId) {
-        await realtimeSendMessage(conversationId, 'user', userMessage);
+        // Send user message (optimistic UI will show it immediately)
+        console.log('💬 Sending user message...')
+        await realtimeSendMessage(conversationId, 'user', userMessage)
 
-        // Simulate AI response (replace with actual API call)
+        // Simulate AI response (TODO: replace with actual API call)
+        console.log('🤖 Generating AI response...')
         setTimeout(async () => {
-          const assistantMessage = `This is a response from ${currentModel?.name}. Your message: "${userMessage}"`;
-          await realtimeSendMessage(conversationId!, 'assistant', assistantMessage);
-        }, 500);
+          try {
+            const assistantMessage = `This is a response from ${currentModel?.name}. Your message: "${userMessage}"` 
+            await realtimeSendMessage(conversationId!, 'assistant', assistantMessage)
+          } catch (err) {
+            console.error('❌ Error sending AI response:', err)
+          }
+        }, 1000)
       }
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('❌ Error in handleSendMessage:', error)
+      alert('Failed to send message. Please try again.')
     }
   }
 
@@ -340,13 +359,25 @@ export default function ArcynEyeDashboard() {
               {/* Profile Menu Dropdown */}
               <AnimatePresence>
                 {showProfileMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9, x: -10 }}
-                    animate={{ opacity: 1, scale: 1, x: 0 }}
-                    exit={{ opacity: 0, scale: 0.9, x: -10 }}
-                    className="absolute bottom-0 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-[70]"
-                    style={{ backdropFilter: "blur(12px)" }}
-                  >
+                  <>
+                    {/* Backdrop */}
+                    <motion.div
+                      className="fixed inset-0 bg-black/20 z-[90]"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      onClick={() => setShowProfileMenu(false)}
+                    />
+                    
+                    {/* Profile Menu */}
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9, x: -10 }}
+                      animate={{ opacity: 1, scale: 1, x: 0 }}
+                      exit={{ opacity: 0, scale: 0.9, x: -10 }}
+                      className="fixed bottom-20 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-[100]"
+                      style={{ backdropFilter: "blur(12px)" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                     {/* Profile Header */}
                     <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
                       <div className="w-12 h-12 rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 flex items-center justify-center overflow-hidden">
@@ -416,6 +447,7 @@ export default function ArcynEyeDashboard() {
                       Logout
                     </motion.button>
                   </motion.div>
+                  </>
                 )}
               </AnimatePresence>
             </div>
@@ -441,7 +473,7 @@ export default function ArcynEyeDashboard() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col" onClick={() => setShowProfileMenu(false)}>
         {/* Floating Navigation Bar - Adjusted for no overlap */}
         <motion.nav
           className="h-16 mx-4 mt-4 px-6 flex items-center justify-between rounded-full bg-white/5 border border-white/10 shadow-lg"
@@ -579,7 +611,7 @@ export default function ArcynEyeDashboard() {
           </AnimatePresence>
 
           {/* Chat Area */}
-          <div className="flex-1 flex flex-col">
+          <div className={`flex-1 flex flex-col transition-all duration-300 ${showProfileMenu ? 'mr-72' : ''}`}>
             <motion.div
               className="flex-1 flex flex-col items-center justify-center space-y-4"
               initial={{ opacity: 0 }}

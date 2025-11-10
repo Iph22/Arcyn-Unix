@@ -23,6 +23,11 @@ import {
   ArrowLeft,
   ChevronLeft,
   CheckCircle,
+  Trash2,
+  Copy,
+  Edit2,
+  RefreshCw,
+  Check,
 } from "lucide-react"
 import ProfileSettings from "../components/profile-settings"
 import AccountSettings from "../components/account-settings"
@@ -130,26 +135,29 @@ export default function ArcynEyeDashboard() {
   } = useRealtime();
 
   const [showSettings, setShowSettings] = useState(false)
-  const [showProfileMenu, setShowProfileMenu] = useState(false)
+  const [profilePanelOpen, setProfilePanelOpen] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string>("gemini")
   const [input, setInput] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [connectionModal, setConnectionModal] = useState<{isOpen: boolean, model: Model | null}>({isOpen: false, model: null})
   const [isSendingMessage, setIsSendingMessage] = useState(false)
+  const [copiedMessageId, setCopiedMessageId] = useState<number | null>(null)
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
+  const [editedContent, setEditedContent] = useState("")
 
   const [currentPage, setCurrentPage] = useState<
     "dashboard" | "profile-settings" | "account-settings" | "preferences" | "app-settings" | "models"
   >("dashboard")
   const [profilePicture, setProfilePicture] = useState<string>("")
 
-  // Close settings modal when profile menu opens
+  // Close settings modal when profile panel opens
   useEffect(() => {
-    if (showProfileMenu) {
+    if (profilePanelOpen) {
       // Close settings modal when profile opens
       setShowSettings(false)
     }
-  }, [showProfileMenu])
+  }, [profilePanelOpen])
 
   // Helper function to check if a model is connected
   function getModelStatus(modelId: string, defaultStatus: "auto" | "connect" | "manual"): "auto" | "connect" | "manual" {
@@ -266,6 +274,83 @@ export default function ArcynEyeDashboard() {
   const quickConnectModels = models.filter((m) => m.status === "connect")
   const manualModels = models.filter((m) => m.status === "manual")
 
+  // Delete conversation function
+  async function deleteConversation(conversationId: string) {
+    if (!confirm('Delete this conversation? This cannot be undone.')) return
+    
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .delete()
+        .eq('id', conversationId)
+      
+      if (error) throw error
+      
+      // If deleting current conversation, clear it
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(null)
+      }
+      
+      toast.success('Conversation deleted')
+    } catch (error) {
+      console.error('Error deleting conversation:', error)
+      toast.error('Failed to delete conversation')
+    }
+  }
+
+  // Copy message to clipboard
+  function copyToClipboard(text: string, messageIndex: number) {
+    navigator.clipboard.writeText(text)
+    setCopiedMessageId(messageIndex)
+    toast.success('Copied to clipboard')
+    setTimeout(() => setCopiedMessageId(null), 2000)
+  }
+
+  // Regenerate AI response
+  async function regenerateResponse(messageIndex: number) {
+    if (!currentConversationId || messageIndex < 1) return
+    
+    const userMessage = messages[messageIndex - 1]
+    if (userMessage.role !== 'user') return
+    
+    setIsSendingMessage(true)
+    
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMessage.content,
+          model: selectedModel,
+          provider: currentModel?.provider
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'AI request failed')
+      }
+
+      const data = await response.json()
+      
+      // Update the assistant message in database
+      const assistantMsg = currentMessages[messageIndex]
+      if (assistantMsg) {
+        await supabase
+          .from('messages')
+          .update({ content: data.response })
+          .eq('id', assistantMsg.id)
+      }
+      
+      toast.success('Response regenerated')
+    } catch (err: any) {
+      console.error('Error regenerating:', err)
+      toast.error('Failed to regenerate response')
+    } finally {
+      setIsSendingMessage(false)
+    }
+  }
+
   const handleProfilePictureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -366,119 +451,22 @@ export default function ArcynEyeDashboard() {
             </motion.button>
 
             {/* Profile Icon at Bottom */}
-            <div className="relative">
-              <motion.button
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                className="w-12 h-12 rounded-lg flex items-center justify-center hover:bg-white/10 transition-all border border-white/10 overflow-hidden"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.9 }}
-              >
-                {profilePicture ? (
-                  <img
-                    src={profilePicture || "/placeholder.svg"}
-                    alt="Profile"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <User className="w-6 h-6 text-cyan-400" />
-                )}
-              </motion.button>
-
-              {/* Profile Menu Dropdown */}
-              <AnimatePresence>
-                {showProfileMenu && (
-                  <>
-                    {/* Backdrop */}
-                    <motion.div
-                      className="fixed inset-0 bg-black/20 z-[90]"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      onClick={() => setShowProfileMenu(false)}
-                    />
-                    
-                    {/* Profile Menu */}
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.9, x: -10 }}
-                      animate={{ opacity: 1, scale: 1, x: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, x: -10 }}
-                      className="fixed bottom-20 left-24 w-64 rounded-xl p-4 bg-white/5 border border-white/10 shadow-2xl z-[100]"
-                      style={{ backdropFilter: "blur(12px)" }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                    {/* Profile Header */}
-                    <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 flex items-center justify-center overflow-hidden">
-                        {profilePicture ? (
-                          <img
-                            src={profilePicture || "/placeholder.svg"}
-                            alt="Profile"
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <User className="w-6 h-6 text-black" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-white">{profile?.full_name || 'User'}</p>
-                        <p className="text-xs text-gray-400">@{profile?.username || 'user'}</p>
-                      </div>
-                    </div>
-
-                    {/* Menu Items */}
-                    <div className="space-y-2 mb-4">
-                      <motion.button
-                        onClick={() => {
-                          setCurrentPage("profile-settings")
-                          setShowProfileMenu(false)
-                        }}
-                        className="w-full flex items-center gap-2 p-3 rounded-lg hover:bg-white/10 transition-all text-left text-sm"
-                        whileHover={{ x: 4 }}
-                      >
-                        <Edit3 className="w-4 h-4 text-cyan-400" />
-                        Edit Profile
-                      </motion.button>
-                      <motion.button
-                        onClick={() => {
-                          setCurrentPage("account-settings")
-                          setShowProfileMenu(false)
-                        }}
-                        className="w-full flex items-center gap-2 p-3 rounded-lg hover:bg-white/10 transition-all text-left text-sm"
-                        whileHover={{ x: 4 }}
-                      >
-                        <Settings className="w-4 h-4 text-cyan-400" />
-                        Account Settings
-                      </motion.button>
-                      <motion.button
-                        onClick={() => {
-                          setCurrentPage("preferences")
-                          setShowProfileMenu(false)
-                        }}
-                        className="w-full flex items-center gap-2 p-3 rounded-lg hover:bg-white/10 transition-all text-left text-sm"
-                        whileHover={{ x: 4 }}
-                      >
-                        <Gear className="w-4 h-4 text-cyan-400" />
-                        Preferences
-                      </motion.button>
-                    </div>
-
-                    {/* Logout */}
-                    <motion.button
-                      onClick={async () => {
-                        await supabase.auth.signOut();
-                        router.push("/login");
-                      }}
-                      className="w-full flex items-center gap-2 p-3 rounded-lg hover:bg-red-500/20 transition-all text-left text-sm border-t border-white/10 pt-4 text-red-400"
-                      whileHover={{ x: 4 }}
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Logout
-                    </motion.button>
-                  </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
+            <motion.button
+              onClick={() => setProfilePanelOpen(!profilePanelOpen)}
+              className="w-12 h-12 rounded-lg flex items-center justify-center hover:bg-white/10 transition-all border border-white/10 overflow-hidden"
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+            >
+              {profilePicture ? (
+                <img
+                  src={profilePicture || "/placeholder.svg"}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <User className="w-6 h-6 text-cyan-400" />
+              )}
+            </motion.button>
           </motion.nav>
         )}
       </AnimatePresence>
@@ -501,7 +489,7 @@ export default function ArcynEyeDashboard() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col" onClick={() => setShowProfileMenu(false)}>
+      <div className="flex-1 flex flex-col">
         {/* Floating Navigation Bar - Adjusted for no overlap */}
         <motion.nav
           className="h-16 mx-4 mt-4 px-6 flex items-center justify-between rounded-full bg-white/5 border border-white/10 shadow-lg"
@@ -593,16 +581,31 @@ export default function ArcynEyeDashboard() {
                     conversations.map((conv, idx) => (
                       <motion.div
                         key={conv.id}
-                        onClick={() => setCurrentConversationId(conv.id)}
-                        className={`p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-all ${
+                        className={`group relative p-3 rounded-lg hover:bg-white/5 cursor-pointer transition-all ${
                           currentConversationId === conv.id ? 'bg-white/10' : ''
                         }`}
                         initial={{ x: -10, opacity: 0 }}
                         animate={{ x: 0, opacity: 1 }}
                         transition={{ delay: 0.3 + idx * 0.05 }}
                       >
-                        <p className="text-sm font-medium text-white truncate">{conv.title}</p>
-                        <p className="text-xs text-gray-500 mt-1">{conv.timestamp}</p>
+                        <div onClick={() => setCurrentConversationId(conv.id)}>
+                          <p className="text-sm font-medium text-white truncate pr-8">{conv.title}</p>
+                          <p className="text-xs text-gray-500 mt-1">{conv.timestamp}</p>
+                        </div>
+                        
+                        {/* Delete Button - Shows on hover */}
+                        <motion.button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteConversation(conv.id)
+                          }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 opacity-0 group-hover:opacity-100 transition-opacity"
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          title="Delete conversation"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-400" />
+                        </motion.button>
                       </motion.div>
                     ))
                   )}
@@ -668,17 +671,102 @@ export default function ArcynEyeDashboard() {
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -10 }}
-                        className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                        className={`group flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                       >
-                        <div
-                          className={`max-w-xl px-4 py-3 rounded-lg ${
-                            msg.role === "user"
-                              ? "bg-cyan-500/20 border border-cyan-500/50"
-                              : "bg-white/5 border border-white/10"
-                          }`}
-                          style={msg.role === "user" ? { boxShadow: "0 0 20px rgba(6,182,212,0.3)" } : undefined}
-                        >
-                          <p className="text-sm">{msg.content}</p>
+                        <div className="relative">
+                          <div
+                            className={`max-w-xl px-4 py-3 rounded-lg ${
+                              msg.role === "user"
+                                ? "bg-cyan-500/20 border border-cyan-500/50"
+                                : "bg-white/5 border border-white/10"
+                            }`}
+                            style={msg.role === "user" ? { boxShadow: "0 0 20px rgba(6,182,212,0.3)" } : undefined}
+                          >
+                            {editingMessageId === idx ? (
+                              <div className="space-y-2">
+                                <textarea
+                                  value={editedContent}
+                                  onChange={(e) => setEditedContent(e.target.value)}
+                                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white resize-none"
+                                  rows={3}
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => {
+                                      // Save edited message logic here
+                                      setEditingMessageId(null)
+                                    }}
+                                    className="px-3 py-1 bg-cyan-500 text-black rounded text-xs font-medium"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingMessageId(null)}
+                                    className="px-3 py-1 bg-white/10 text-white rounded text-xs"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                            )}
+                          </div>
+                          
+                          {/* Message Actions - Show on hover */}
+                          {editingMessageId !== idx && (
+                            <motion.div
+                              className="absolute -top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              initial={{ y: -5 }}
+                              animate={{ y: 0 }}
+                            >
+                              {/* Copy Button */}
+                              <motion.button
+                                onClick={() => copyToClipboard(msg.content, idx)}
+                                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 backdrop-blur-xl"
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                title="Copy message"
+                              >
+                                {copiedMessageId === idx ? (
+                                  <Check className="w-3.5 h-3.5 text-green-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5 text-white" />
+                                )}
+                              </motion.button>
+                              
+                              {/* Edit Button (only for user messages) */}
+                              {msg.role === "user" && (
+                                <motion.button
+                                  onClick={() => {
+                                    setEditingMessageId(idx)
+                                    setEditedContent(msg.content)
+                                  }}
+                                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 backdrop-blur-xl"
+                                  whileHover={{ scale: 1.1 }}
+                                  whileTap={{ scale: 0.9 }}
+                                  title="Edit message"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5 text-white" />
+                                </motion.button>
+                              )}
+                              
+                              {/* Regenerate Button (only for assistant messages) */}
+                              {msg.role === "assistant" && idx > 0 && (
+                                <motion.button
+                                  onClick={() => regenerateResponse(idx)}
+                                  disabled={isSendingMessage}
+                                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 backdrop-blur-xl disabled:opacity-50"
+                                  whileHover={{ scale: isSendingMessage ? 1 : 1.1 }}
+                                  whileTap={{ scale: isSendingMessage ? 1 : 0.9 }}
+                                  title="Regenerate response"
+                                >
+                                  <RefreshCw className={`w-3.5 h-3.5 text-white ${isSendingMessage ? 'animate-spin' : ''}`} />
+                                </motion.button>
+                              )}
+                            </motion.div>
+                          )}
                         </div>
                       </motion.div>
                     ))}
@@ -851,6 +939,108 @@ export default function ArcynEyeDashboard() {
           }}
         />
       )}
+
+      {/* Profile Settings Panel - Right Side */}
+      <AnimatePresence>
+        {profilePanelOpen && (
+          <motion.aside
+            className="w-80 m-4 rounded-2xl p-4 flex flex-col overflow-hidden bg-white/5 border border-white/10 shadow-lg"
+            style={{ backdropFilter: "blur(12px)" }}
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 20, opacity: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            {/* Header with Close Button */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-gray-400">Profile Settings</h3>
+              <motion.button
+                onClick={() => setProfilePanelOpen(false)}
+                className="p-1 rounded hover:bg-white/10 transition-all"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </motion.button>
+            </div>
+
+            {/* Profile Header */}
+            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/10">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400 flex items-center justify-center overflow-hidden">
+                {profilePicture ? (
+                  <img
+                    src={profilePicture}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <User className="w-8 h-8 text-black" />
+                )}
+              </div>
+              <div>
+                <p className="font-semibold text-white text-lg">{profile?.full_name || 'User'}</p>
+                <p className="text-sm text-gray-400">@{profile?.username || 'user'}</p>
+              </div>
+            </div>
+
+            {/* Menu Items */}
+            <div className="space-y-2 flex-1">
+              <motion.button
+                onClick={() => {
+                  setCurrentPage("profile-settings")
+                  setProfilePanelOpen(false)
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition-all text-left"
+                whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Edit3 className="w-5 h-5 text-cyan-400" />
+                <span>Edit Profile</span>
+              </motion.button>
+
+              <motion.button
+                onClick={() => {
+                  setCurrentPage("account-settings")
+                  setProfilePanelOpen(false)
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition-all text-left"
+                whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Settings className="w-5 h-5 text-cyan-400" />
+                <span>Account Settings</span>
+              </motion.button>
+
+              <motion.button
+                onClick={() => {
+                  setCurrentPage("preferences")
+                  setProfilePanelOpen(false)
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition-all text-left"
+                whileHover={{ x: 4 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <Gear className="w-5 h-5 text-cyan-400" />
+                <span>Preferences</span>
+              </motion.button>
+            </div>
+
+            {/* Logout Button */}
+            <motion.button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                router.push("/login");
+              }}
+              className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-500/20 transition-all text-left border-t border-white/10 pt-4 text-red-400 mt-4"
+              whileHover={{ x: 4 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <LogOut className="w-5 h-5" />
+              <span>Logout</span>
+            </motion.button>
+          </motion.aside>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

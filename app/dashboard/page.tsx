@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { useRealtime } from "@/lib/contexts/RealtimeContext"
+import { toast } from "sonner"
 import {
   Settings,
   Plus,
@@ -135,6 +136,7 @@ export default function ArcynEyeDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [connectionModal, setConnectionModal] = useState<{isOpen: boolean, model: Model | null}>({isOpen: false, model: null})
+  const [isSendingMessage, setIsSendingMessage] = useState(false)
 
   const [currentPage, setCurrentPage] = useState<
     "dashboard" | "profile-settings" | "account-settings" | "preferences" | "app-settings" | "models"
@@ -190,10 +192,11 @@ export default function ArcynEyeDashboard() {
   const currentModel = models.find((m) => m.id === selectedModel)
 
   const handleSendMessage = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || isSendingMessage) return
 
     const userMessage = input
     setInput("") // Clear input immediately for better UX
+    setIsSendingMessage(true)
 
     try {
       let conversationId = currentConversationId
@@ -217,20 +220,45 @@ export default function ArcynEyeDashboard() {
         console.log('💬 Sending user message...')
         await realtimeSendMessage(conversationId, 'user', userMessage)
 
-        // Simulate AI response (TODO: replace with actual API call)
-        console.log('🤖 Generating AI response...')
-        setTimeout(async () => {
-          try {
-            const assistantMessage = `This is a response from ${currentModel?.name}. Your message: "${userMessage}"` 
-            await realtimeSendMessage(conversationId!, 'assistant', assistantMessage)
-          } catch (err) {
-            console.error('❌ Error sending AI response:', err)
+        // Get real AI response
+        console.log('🤖 Calling AI API...')
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: userMessage,
+              model: selectedModel,
+              provider: currentModel?.provider
+            })
+          })
+
+          if (!response.ok) {
+            const error = await response.json()
+            throw new Error(error.error || 'AI request failed')
           }
-        }, 1000)
+
+          const data = await response.json()
+          console.log('✅ AI responded')
+          
+          // Send AI response
+          await realtimeSendMessage(conversationId!, 'assistant', data.response)
+        } catch (err: any) {
+          console.error('❌ Error getting AI response:', err)
+          
+          // Show error message to user
+          await realtimeSendMessage(
+            conversationId!, 
+            'assistant', 
+            `Error: ${err.message}. Please check your API connection in settings.` 
+          )
+        }
       }
     } catch (error) {
       console.error('❌ Error in handleSendMessage:', error)
-      alert('Failed to send message. Please try again.')
+      toast.error('Failed to send message. Please try again.')
+    } finally {
+      setIsSendingMessage(false)
     }
   }
 
@@ -611,7 +639,7 @@ export default function ArcynEyeDashboard() {
           </AnimatePresence>
 
           {/* Chat Area */}
-          <div className={`flex-1 flex flex-col transition-all duration-300 ${showProfileMenu ? 'mr-72' : ''}`}>
+          <div className="flex-1 flex flex-col">
             <motion.div
               className="flex-1 flex flex-col items-center justify-center space-y-4"
               initial={{ opacity: 0 }}
@@ -671,18 +699,34 @@ export default function ArcynEyeDashboard() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                placeholder="Message ARCYN EYE..."
-                className="flex-1 bg-transparent outline-none text-white placeholder-gray-500"
+                onKeyPress={(e) => e.key === "Enter" && !isSendingMessage && handleSendMessage()}
+                placeholder={
+                  !selectedModel 
+                    ? "Select a model first..." 
+                    : isSendingMessage 
+                      ? "Sending..." 
+                      : "Message ARCYN EYE..."
+                }
+                disabled={!selectedModel || isSendingMessage}
+                className="flex-1 bg-transparent outline-none text-white placeholder-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <motion.button
                 onClick={handleSendMessage}
-                className="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center hover:scale-105 transition-all"
+                disabled={isSendingMessage || !input.trim()}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                  isSendingMessage || !input.trim() 
+                    ? 'bg-cyan-500/50 cursor-not-allowed' 
+                    : 'bg-cyan-500 hover:scale-105'
+                }`}
                 style={{ boxShadow: "0 0 20px rgba(6,182,212,0.4)" }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.9 }}
+                whileHover={{ scale: isSendingMessage || !input.trim() ? 1 : 1.05 }}
+                whileTap={{ scale: isSendingMessage || !input.trim() ? 1 : 0.9 }}
               >
-                <Send className="w-5 h-5 text-black" />
+                {isSendingMessage ? (
+                  <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5 text-black" />
+                )}
               </motion.button>
             </motion.div>
           </div>
@@ -802,6 +846,8 @@ export default function ArcynEyeDashboard() {
           model={connectionModal.model}
           onSuccess={() => {
             refreshConnections()
+            setConnectionModal({isOpen: false, model: null})
+            toast.success('Model connected successfully!')
           }}
         />
       )}

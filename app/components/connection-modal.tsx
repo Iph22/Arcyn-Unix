@@ -90,10 +90,11 @@ export default function ConnectionModal({ isOpen, onClose, model, onSuccess }: C
         setApiKey("")
         setTestStatus("idle")
       } else {
+        // Show specific error from API
         setErrorMessage(data.error || "Failed to save connection")
       }
-    } catch (error) {
-      setErrorMessage("Failed to save connection")
+    } catch (error: any) {
+      setErrorMessage(error.message || "Network error. Please try again.")
     } finally {
       setIsLoading(false)
     }
